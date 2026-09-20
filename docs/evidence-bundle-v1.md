@@ -1,6 +1,6 @@
-# QuantOps Evidence Bundle v1
+# QuantOps Evidence Bundle v1 - Legacy Compatibility
 
-`quantops-evidence-bundle/v1` is an artifact-first, display-data interchange
+`quantops-evidence-bundle/v1` is a legacy artifact-first, display-data interchange
 format. A producer serializes a self-contained JSON document; a consumer
 validates that document without contacting a producer or opening a referenced
 artifact. The format carries no provider, framework, UI, or runtime identity.
@@ -46,6 +46,10 @@ cross-language integral-number representation.
 - Unsafe text (script/tag/template markers), unsafe paths, unknown fields,
   malformed/oversized values, and digest mismatches are refused with stable
   `EVIDENCE_*_REFUSED` error codes.
+
+New publishers must emit `quantops-evidence-bundle/v2`. Consumers retain v1
+admission only to read already-published bundles that use v1's compact-JSON
+digest rule.
 
 Python `publish_artifact` and Rust `publish_artifact` copy a regular,
 allowlisted source into a caller-owned `artifacts/` directory and return a

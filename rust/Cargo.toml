@@ -1,12 +1,12 @@
 [package]
 name = "quantops-sdk"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
-description = "Runtime-neutral validation for quantops-evidence-bundle/v1"
+description = "Runtime-neutral validation for QuantOps evidence bundles"
 repository = "https://github.com/arktec-quant/QuantOps-sdk"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["arbitrary_precision"] }
 sha2 = "0.10"

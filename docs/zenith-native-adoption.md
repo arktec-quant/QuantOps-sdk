@@ -27,7 +27,7 @@ or execute the producer's code.
 ### 1. Publish evidence
 
 Keep existing Python research workflows. At each approved publication point,
-build a `quantops-evidence-bundle/v1` with bounded summaries, tables, notes,
+build a `quantops-evidence-bundle/v2` with bounded summaries, tables, notes,
 input references, and metadata-only artifact references.
 
 Use the SDK's local admission before delivery. This keeps Python output aligned

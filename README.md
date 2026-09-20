@@ -1,7 +1,7 @@
 # QuantOps SDK
 
 QuantOps SDK is a protocol-first, artifact-first SDK for
-`quantops-evidence-bundle/v1`. It lets a research or operational project
+`quantops-evidence-bundle/v2`. It lets a research or operational project
 publish bounded display evidence that a native consumer can validate without
 importing the producer's code or contacting its runtime.
 
@@ -14,14 +14,14 @@ The current public release is source-distributed through GitHub. Install the
 tagged Python package with:
 
 ```bash
-python -m pip install "quantops-sdk @ git+https://github.com/arktec-quant/QuantOps-sdk.git@v0.1.1"
+python -m pip install "quantops-sdk @ git+https://github.com/arktec-quant/QuantOps-sdk.git@v0.2.0"
 ```
 
 The Rust contract crate is available from the same tagged repository:
 
 ```toml
 [dependencies]
-quantops-sdk = { git = "https://github.com/arktec-quant/QuantOps-sdk.git", tag = "v0.1.1", package = "quantops-sdk" }
+quantops-sdk = { git = "https://github.com/arktec-quant/QuantOps-sdk.git", tag = "v0.2.0", package = "quantops-sdk" }
 ```
 
 ## Python producer
@@ -64,8 +64,10 @@ cargo test --manifest-path rust/Cargo.toml
 
 ## Contract and safety
 
-- [Evidence Bundle v1](docs/evidence-bundle-v1.md) defines the wire format,
+- [Evidence Bundle v2](docs/evidence-bundle-v2.md) defines the active wire format,
   limits, digest rules, and refusal conditions.
+- [Evidence Bundle v1](docs/evidence-bundle-v1.md) documents legacy read
+  compatibility only. New publishers must emit v2.
 - [Public release boundary](docs/public-release-boundary.md) defines what this
   repository intentionally includes and excludes.
 - [Zenith-native adoption](docs/zenith-native-adoption.md) describes how a

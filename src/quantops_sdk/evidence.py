@@ -1,4 +1,4 @@
-"""Strict, deterministic `quantops-evidence-bundle/v1` admission."""
+"""Strict, deterministic QuantOps evidence-bundle admission."""
 
 from __future__ import annotations
 
@@ -8,7 +8,8 @@ import json
 import math
 from typing import Any, Mapping, Sequence
 
-SCHEMA_VERSION = "quantops-evidence-bundle/v1"
+SCHEMA_VERSION = "quantops-evidence-bundle/v2"
+LEGACY_SCHEMA_VERSION = "quantops-evidence-bundle/v1"
 MAX_BUNDLE_BYTES = 65_536
 MAX_TEXT_BYTES = 512
 MAX_NOTE_BYTES = 1_024
@@ -221,27 +222,86 @@ def _provenance(value: Any) -> dict[str, Any]:
 
 
 def canonical_payload_bytes(payload: Mapping[str, Any]) -> bytes:
-    """Validate and serialize a payload in the one cross-language wire form."""
+    """Validate and encode a v2 payload in the cross-language digest form."""
+    normalized = _payload(dict(payload))
+    encoded = bytearray(b"quantops-evidence-payload/v2\0")
+    _u32(encoded, len(normalized["summary"]))
+    for item in normalized["summary"]:
+        _text(encoded, item["label"])
+        _display_value_bytes(encoded, item["value"])
+    _u32(encoded, len(normalized["tables"]))
+    for table in normalized["tables"]:
+        _text(encoded, table["title"])
+        _u32(encoded, len(table["columns"]))
+        for column in table["columns"]:
+            _text(encoded, column)
+        _u32(encoded, len(table["rows"]))
+        for row in table["rows"]:
+            for value in row:
+                _display_value_bytes(encoded, value)
+    _u32(encoded, len(normalized["notes"]))
+    for note in normalized["notes"]:
+        _text(encoded, note)
+    return bytes(encoded)
+
+
+def _legacy_canonical_payload_bytes(payload: Mapping[str, Any]) -> bytes:
     return _compact_json(_payload(dict(payload)))
 
 
+def _u32(encoded: bytearray, value: int) -> None:
+    encoded.extend(value.to_bytes(4, "big"))
+
+
+def _text(encoded: bytearray, value: str) -> None:
+    raw = value.encode("utf-8")
+    _u32(encoded, len(raw))
+    encoded.extend(raw)
+
+
+def _display_value_bytes(encoded: bytearray, value: Mapping[str, Any]) -> None:
+    if value["kind"] == "text":
+        encoded.append(1)
+        _text(encoded, value["value"])
+    elif value["kind"] == "number":
+        encoded.append(2)
+        _text(encoded, _number_token(value["value"]))
+    else:
+        encoded.append(3)
+        encoded.append(1 if value["value"] else 0)
+
+
+def _number_token(value: float) -> str:
+    """Use JSON's finite numeric token, never a runtime float bit pattern."""
+    return json.dumps(value, allow_nan=False, separators=(",", ":"))
+
+
 def payload_sha256(payload: Mapping[str, Any]) -> str:
-    """Return the SHA-256 of deterministic, validated payload JSON."""
+    """Return the SHA-256 of deterministic, typed v2 payload bytes."""
     return sha256(canonical_payload_bytes(payload)).hexdigest()
+
+
+def _payload_sha256_for_schema(payload: Mapping[str, Any], schema_version: str) -> str:
+    if schema_version == SCHEMA_VERSION:
+        return payload_sha256(payload)
+    if schema_version == LEGACY_SCHEMA_VERSION:
+        return sha256(_legacy_canonical_payload_bytes(payload)).hexdigest()
+    _refuse("EVIDENCE_SCHEMA_VERSION_REFUSED")
 
 
 def admit_bundle_bytes(data: bytes) -> EvidenceBundle:
     """Admit one untrusted JSON bundle without opening its artifact references."""
     raw = _parse_bytes(data)
     raw = _object(raw, ("schema_version", "bundle_id", "payload_sha256", "provenance", "payload"))
-    if raw["schema_version"] != SCHEMA_VERSION:
+    schema_version = raw["schema_version"]
+    if schema_version not in {SCHEMA_VERSION, LEGACY_SCHEMA_VERSION}:
         _refuse("EVIDENCE_SCHEMA_VERSION_REFUSED")
     payload = _payload(raw["payload"])
     digest = _sha256(raw["payload_sha256"])
-    if payload_sha256(payload) != digest:
+    if _payload_sha256_for_schema(payload, schema_version) != digest:
         _refuse("EVIDENCE_DIGEST_REFUSED")
     return EvidenceBundle(
-        schema_version=SCHEMA_VERSION,
+        schema_version=schema_version,
         bundle_id=_token(raw["bundle_id"]),
         payload_sha256=digest,
         provenance=_provenance(raw["provenance"]),

@@ -11,7 +11,8 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-pub const SCHEMA_VERSION: &str = "quantops-evidence-bundle/v1";
+pub const SCHEMA_VERSION: &str = "quantops-evidence-bundle/v2";
+pub const LEGACY_SCHEMA_VERSION: &str = "quantops-evidence-bundle/v1";
 pub const MAX_BUNDLE_BYTES: usize = 65_536;
 pub const MAX_TEXT_BYTES: usize = 512;
 pub const MAX_NOTE_BYTES: usize = 1_024;
@@ -102,7 +103,7 @@ pub struct DisplayTable {
 )]
 pub enum DisplayValue {
     Text(String),
-    Number(f64),
+    Number(serde_json::Number),
     Boolean(bool),
 }
 
@@ -126,13 +127,17 @@ pub fn admit_bundle_bytes(bytes: &[u8]) -> Result<EvidenceBundle, EvidenceRefusa
 impl EvidenceBundle {
     /// Validates an already decoded bundle without opening any referenced artifact.
     pub fn validate(&self) -> Result<(), EvidenceRefusal> {
-        if self.schema_version != SCHEMA_VERSION || !is_token(&self.bundle_id, 96) {
+        if !matches!(
+            self.schema_version.as_str(),
+            SCHEMA_VERSION | LEGACY_SCHEMA_VERSION
+        ) || !is_token(&self.bundle_id, 96)
+        {
             return Err(refusal("EVIDENCE_SCHEMA_VERSION_REFUSED"));
         }
         if !is_sha256(&self.payload_sha256) {
             return Err(refusal("EVIDENCE_DIGEST_REFUSED"));
         }
-        if payload_sha256(&self.payload)? != self.payload_sha256 {
+        if payload_sha256_for_schema(&self.schema_version, &self.payload)? != self.payload_sha256 {
             return Err(refusal("EVIDENCE_DIGEST_REFUSED"));
         }
         validate_provenance(&self.provenance)?;
@@ -146,10 +151,34 @@ impl EvidenceBundle {
     }
 }
 
-/// Serializes a validated payload in the cross-language digest representation.
+/// Serializes a validated v2 payload in the cross-language digest representation.
 pub fn canonical_payload_bytes(payload: &DisplayPayload) -> Result<Vec<u8>, EvidenceRefusal> {
     validate_payload(payload)?;
-    serde_json::to_vec(payload).map_err(|_| refusal("EVIDENCE_SCHEMA_REFUSED"))
+    let mut encoded = b"quantops-evidence-payload/v2\0".to_vec();
+    push_u32(&mut encoded, payload.summary.len())?;
+    for item in &payload.summary {
+        push_text(&mut encoded, &item.label)?;
+        push_display_value(&mut encoded, &item.value)?;
+    }
+    push_u32(&mut encoded, payload.tables.len())?;
+    for table in &payload.tables {
+        push_text(&mut encoded, &table.title)?;
+        push_u32(&mut encoded, table.columns.len())?;
+        for column in &table.columns {
+            push_text(&mut encoded, column)?;
+        }
+        push_u32(&mut encoded, table.rows.len())?;
+        for row in &table.rows {
+            for value in row {
+                push_display_value(&mut encoded, value)?;
+            }
+        }
+    }
+    push_u32(&mut encoded, payload.notes.len())?;
+    for note in &payload.notes {
+        push_text(&mut encoded, note)?;
+    }
+    Ok(encoded)
 }
 
 /// Returns the lowercase SHA-256 for deterministic, validated payload JSON.
@@ -158,6 +187,55 @@ pub fn payload_sha256(payload: &DisplayPayload) -> Result<String, EvidenceRefusa
         "{:x}",
         Sha256::digest(canonical_payload_bytes(payload)?)
     ))
+}
+
+fn payload_sha256_for_schema(
+    schema_version: &str,
+    payload: &DisplayPayload,
+) -> Result<String, EvidenceRefusal> {
+    match schema_version {
+        SCHEMA_VERSION => payload_sha256(payload),
+        LEGACY_SCHEMA_VERSION => Ok(format!(
+            "{:x}",
+            Sha256::digest(legacy_canonical_payload_bytes(payload)?)
+        )),
+        _ => Err(refusal("EVIDENCE_SCHEMA_VERSION_REFUSED")),
+    }
+}
+
+fn legacy_canonical_payload_bytes(payload: &DisplayPayload) -> Result<Vec<u8>, EvidenceRefusal> {
+    validate_payload(payload)?;
+    serde_json::to_vec(payload).map_err(|_| refusal("EVIDENCE_SCHEMA_REFUSED"))
+}
+
+fn push_u32(encoded: &mut Vec<u8>, value: usize) -> Result<(), EvidenceRefusal> {
+    let value = u32::try_from(value).map_err(|_| refusal("EVIDENCE_PAYLOAD_LIMIT_REFUSED"))?;
+    encoded.extend_from_slice(&value.to_be_bytes());
+    Ok(())
+}
+
+fn push_text(encoded: &mut Vec<u8>, value: &str) -> Result<(), EvidenceRefusal> {
+    push_u32(encoded, value.len())?;
+    encoded.extend_from_slice(value.as_bytes());
+    Ok(())
+}
+
+fn push_display_value(encoded: &mut Vec<u8>, value: &DisplayValue) -> Result<(), EvidenceRefusal> {
+    match value {
+        DisplayValue::Text(value) => {
+            encoded.push(1);
+            push_text(encoded, value)?;
+        }
+        DisplayValue::Number(value) => {
+            encoded.push(2);
+            push_text(encoded, &value.to_string())?;
+        }
+        DisplayValue::Boolean(value) => {
+            encoded.push(3);
+            encoded.push(u8::from(*value));
+        }
+    }
+    Ok(())
 }
 
 /// Copies one regular allowlisted file under `artifact_root/artifacts`.
@@ -334,7 +412,7 @@ fn validate_payload(payload: &DisplayPayload) -> Result<(), EvidenceRefusal> {
 fn is_display_value(value: &DisplayValue) -> bool {
     match value {
         DisplayValue::Text(value) => is_display_text(value, MAX_TEXT_BYTES),
-        DisplayValue::Number(value) => value.is_finite(),
+        DisplayValue::Number(value) => value.as_f64().is_some_and(f64::is_finite),
         DisplayValue::Boolean(_) => true,
     }
 }

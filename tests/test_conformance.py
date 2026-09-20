@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 
-from quantops_sdk import EvidenceRefusal, admit_bundle_bytes, build_bundle, payload_sha256, publish_artifact
+from quantops_sdk import EvidenceRefusal, LEGACY_SCHEMA_VERSION, SCHEMA_VERSION, admit_bundle_bytes, build_bundle, payload_sha256, publish_artifact
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,13 +15,32 @@ def fixture(name: str) -> bytes:
     return (FIXTURES / name).read_bytes()
 
 
-def test_valid_fixture_and_expected_integral_f64_digest() -> None:
+def test_legacy_v1_fixture_remains_admissible() -> None:
     raw = fixture("valid-integral-number.json")
     admitted = admit_bundle_bytes(raw)
     expected = "b81f9dd7bd3eb7246acc5fcb2d1ab709096191fdd393007e09e583f28ca076dc"
+    assert admitted.schema_version == LEGACY_SCHEMA_VERSION
     assert admitted.payload_sha256 == expected
-    assert payload_sha256(json.loads(raw)["payload"]) == expected
     assert b'"value":42.0' in admitted.to_json_bytes()
+
+
+def test_v2_digest_preserves_exact_decimal_bits() -> None:
+    bundle = build_bundle(
+        bundle_id="decimal-conformance",
+        publisher="test publisher",
+        source_run_id="run-1",
+        generated_at="2026-09-20T00:00:00Z",
+        inputs=[],
+        artifacts=[],
+        payload={
+            "summary": [{"label": "Decimal", "value": {"kind": "number", "value": 1.0457787078281227}}],
+            "tables": [],
+            "notes": ["Exact numeric digest."],
+        },
+    )
+    assert bundle.schema_version == SCHEMA_VERSION
+    assert payload_sha256(bundle.payload) == bundle.payload_sha256
+    assert admit_bundle_bytes(bundle.to_json_bytes()) == bundle
 
 
 @pytest.mark.parametrize(
